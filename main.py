@@ -4,6 +4,8 @@ Twitter Monitor for Shams Charania
 Main entry point for the Twitter monitoring application
 """
 
+# Go Lakers
+
 import os
 import sys
 import time
