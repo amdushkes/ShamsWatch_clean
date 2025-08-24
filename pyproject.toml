@@ -1,0 +1,10 @@
+[project]
+name = "repl-nix-workspace"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "trafilatura>=2.0.0",
+    "tweepy>=4.16.0",
+    "twilio>=9.7.1",
+]
