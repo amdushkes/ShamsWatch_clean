@@ -26,22 +26,33 @@ class TwitterMonitor:
         # Load or initialize data
         self.data = self.load_data()
         
-        # Get Shams Charania's user ID
+        # Get Shams Charania's user ID (cached to avoid rate limits)
         self.shams_user_id = self.get_user_id()
         
         logger.info(f"Twitter Monitor initialized for user ID: {self.shams_user_id}")
     
     def get_user_id(self):
-        """Get Shams Charania's Twitter user ID"""
+        """Get Shams Charania's Twitter user ID (cached to avoid rate limits)"""
+        # Use cached user ID to avoid hitting rate limits
+        cached_user_id = self.data.get('shams_user_id')
+        if cached_user_id:
+            logger.info(f"Using cached user ID: {cached_user_id}")
+            return cached_user_id
+            
         try:
             user = self.client.get_user(username='ShamsCharania')
             if user and user.data:
+                # Cache the user ID to avoid future API calls
+                self.data['shams_user_id'] = user.data.id
+                self.save_data()
                 return user.data.id
             else:
                 raise Exception("User not found")
         except Exception as e:
             logger.error(f"Failed to get user ID for ShamsCharania: {str(e)}")
-            raise
+            # Fallback to known user ID if API call fails
+            logger.info("Using known fallback user ID: 178580925")
+            return "178580925"
     
     def load_data(self):
         """Load data from JSON file or create new data structure"""
