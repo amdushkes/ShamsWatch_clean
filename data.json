@@ -1,5 +1,21 @@
 {
   "last_tweet_id": 1963394108241973748,
   "total_tweets_sent": 20,
-  "shams_user_id": "178580925"
+  "shams_user_id": "178580925",
+  "activity_log": [
+    {
+      "timestamp": "2025-09-05T21:49:40.295570+00:00",
+      "action": "rate_limited",
+      "tweets_found": 0,
+      "sms_sent": 0
+    },
+    {
+      "timestamp": "2025-09-05T21:49:50.925511+00:00",
+      "action": "rate_limited",
+      "tweets_found": 0,
+      "sms_sent": 0
+    }
+  ],
+  "daily_sms_count": {},
+  "last_volume_alert": null
 }

@@ -1,7 +1,7 @@
 modules = ["python-3.11"]
 [agent]
 expertMode = true
-integrations = ["web_scraper==1.0.0", "twilio_send_message==1.0.0"]
+integrations = ["twilio_send_message==1.0.0", "web_scraper==1.0.0"]
 
 [nix]
 channel = "stable-25_05"
@@ -22,12 +22,12 @@ args = "Twitter Monitor"
 name = "Twitter Monitor"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "console"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python main.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [deployment]
 run = ["sh", "-c", "python main.py"]
