@@ -102,10 +102,10 @@ class TwitterMonitor:
                 self.process_new_tweet(tweet)
                 
         except tweepy.TooManyRequests:
-            logger.warning("Twitter API rate limit exceeded. Waiting for rate limit reset...")
-            # Wait for rate limit to reset (15 minutes for user timeline)
-            import time
-            time.sleep(900)  # 15 minutes
+            logger.warning("Twitter API rate limit exceeded. Exiting to avoid overlap with scheduled runs.")
+            # For scheduled deployment: exit immediately instead of waiting
+            # The scheduler will retry in 2 minutes automatically
+            return
         except Exception as e:
             logger.error(f"Error checking for new tweets: {str(e)}")
             raise
@@ -113,6 +113,11 @@ class TwitterMonitor:
     def process_new_tweet(self, tweet):
         """Process a new tweet and send SMS notification"""
         try:
+            # Check if we already processed this tweet to prevent duplicates
+            if str(tweet.id) == str(self.data.get('last_tweet_id')):
+                logger.debug(f"Tweet {tweet.id} already processed, skipping")
+                return
+                
             # Format the tweet content for SMS
             sms_message = self.format_tweet_for_sms(tweet)
             
@@ -120,7 +125,7 @@ class TwitterMonitor:
             success = self.sms_sender.send_notification(sms_message)
             
             if success:
-                # Update last seen tweet ID
+                # Update last seen tweet ID FIRST to prevent duplicate sends
                 self.data['last_tweet_id'] = tweet.id
                 self.data['total_tweets_sent'] = self.data.get('total_tweets_sent', 0) + 1
                 self.save_data()
