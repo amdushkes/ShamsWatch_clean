@@ -37,36 +37,14 @@ class TwitterMonitor:
     def log_rate_limit_status(self, response, endpoint_name):
         """Log current rate limit status from Twitter API response headers"""
         try:
-            # Debug: Show what type of response object we have
-            logger.info(f"DEBUG: Response type: {type(response)}")
+            # Get rate limit headers from the response
+            headers = getattr(response, 'headers', {})
             
-            # Try different ways to get headers
-            headers = None
-            if hasattr(response, 'headers'):
-                headers = response.headers
-                logger.info(f"DEBUG: Found headers attribute: {type(headers)}")
-            elif hasattr(response, 'response') and hasattr(response.response, 'headers'):
-                headers = response.response.headers
-                logger.info(f"DEBUG: Found response.response.headers: {type(headers)}")
+            remaining = headers.get('x-rate-limit-remaining', 'Unknown')
+            limit = headers.get('x-rate-limit-limit', 'Unknown')
+            reset_timestamp = headers.get('x-rate-limit-reset', 'Unknown')
             
-            # Debug: Show all headers if available
-            if headers:
-                logger.info(f"DEBUG: All available headers: {dict(headers)}")
-            else:
-                logger.info("DEBUG: No headers found")
-            
-            if headers:
-                # Try both uppercase and lowercase variants
-                remaining = (headers.get('x-rate-limit-remaining') or 
-                           headers.get('X-Rate-Limit-Remaining') or 'Unknown')
-                limit = (headers.get('x-rate-limit-limit') or 
-                        headers.get('X-Rate-Limit-Limit') or 'Unknown')
-                reset_timestamp = (headers.get('x-rate-limit-reset') or 
-                                 headers.get('X-Rate-Limit-Reset') or 'Unknown')
-            else:
-                remaining = limit = reset_timestamp = 'No Headers'
-            
-            if reset_timestamp != 'Unknown' and reset_timestamp != 'No Headers':
+            if reset_timestamp != 'Unknown':
                 try:
                     reset_time = datetime.fromtimestamp(int(reset_timestamp), tz=timezone.utc)
                     reset_str = reset_time.strftime('%Y-%m-%d %H:%M:%S UTC')
@@ -74,10 +52,10 @@ class TwitterMonitor:
                     minutes_until_reset = int(time_until_reset.total_seconds() / 60)
                 except:
                     reset_str = reset_timestamp
-                    minutes_until_reset = 'Parse Error'
+                    minutes_until_reset = 'Unknown'
             else:
-                reset_str = reset_timestamp
-                minutes_until_reset = 'N/A'
+                reset_str = 'Unknown'
+                minutes_until_reset = 'Unknown'
             
             logger.info(f"RATE LIMIT STATUS for {endpoint_name}:")
             logger.info(f"  Remaining: {remaining}/{limit} requests")
@@ -135,7 +113,9 @@ class TwitterMonitor:
             'shams_user_id': None,
             'activity_log': [],
             'daily_sms_count': {},
-            'last_volume_alert': None
+            'last_volume_alert': None,
+            'paused_until': None,
+            'pause_reason': None
         }
     
     def _initialize_activity_tracking(self):
@@ -146,6 +126,10 @@ class TwitterMonitor:
             self.data['daily_sms_count'] = {}
         if 'last_volume_alert' not in self.data:
             self.data['last_volume_alert'] = None
+        if 'paused_until' not in self.data:
+            self.data['paused_until'] = None
+        if 'pause_reason' not in self.data:
+            self.data['pause_reason'] = None
     
     def save_data(self):
         """Save data to JSON file"""
@@ -155,10 +139,86 @@ class TwitterMonitor:
         except Exception as e:
             logger.error(f"Failed to save data: {str(e)}")
     
+    def is_paused(self):
+        """Check if the system is currently paused"""
+        pause_until = self.data.get('paused_until')
+        if not pause_until:
+            return False
+        
+        # Convert string back to datetime for comparison
+        try:
+            pause_end_time = datetime.fromisoformat(str(pause_until))
+            current_time = datetime.now(timezone.utc)
+            
+            if current_time < pause_end_time:
+                return True
+            else:
+                # Pause has expired, clear it
+                self._clear_pause()
+                return False
+        except Exception as e:
+            logger.error(f"Error checking pause status: {str(e)}")
+            # If we can't parse the pause time, clear it to be safe
+            self._clear_pause()
+            return False
+    
+    def set_48_hour_pause(self, reason):
+        """Set a 48-hour pause with the given reason"""
+        pause_end_time = datetime.now(timezone.utc) + timedelta(hours=48)
+        self.data['paused_until'] = pause_end_time.isoformat()
+        self.data['pause_reason'] = reason
+        self.save_data()
+        
+        logger.warning(f"SYSTEM PAUSED for 48 hours until {pause_end_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        logger.warning(f"Pause reason: {reason}")
+    
+    def _clear_pause(self):
+        """Clear the current pause"""
+        if self.data.get('paused_until'):
+            logger.info("48-hour pause period has ended. Resuming normal operations.")
+        
+        self.data['paused_until'] = None
+        self.data['pause_reason'] = None
+        self.save_data()
+    
+    def get_pause_status(self):
+        """Get detailed pause status information"""
+        if not self.is_paused():
+            return {'paused': False}
+        
+        pause_until = self.data.get('paused_until')
+        reason = self.data.get('pause_reason')
+        
+        try:
+            pause_end_time = datetime.fromisoformat(pause_until)
+            current_time = datetime.now(timezone.utc)
+            time_remaining = pause_end_time - current_time
+            
+            hours_remaining = int(time_remaining.total_seconds() / 3600)
+            minutes_remaining = int((time_remaining.total_seconds() % 3600) / 60)
+            
+            return {
+                'paused': True,
+                'reason': reason,
+                'paused_until': pause_end_time.strftime('%Y-%m-%d %H:%M:%S UTC'),
+                'time_remaining': f"{hours_remaining}h {minutes_remaining}m"
+            }
+        except Exception as e:
+            logger.error(f"Error getting pause status details: {str(e)}")
+            return {'paused': True, 'reason': reason, 'error': 'Cannot parse pause time'}
+    
     def check_for_new_tweets(self):
         """Check for new tweets from Shams Charania"""
         check_time = datetime.now(timezone.utc).isoformat()
         new_tweets_found = 0
+        
+        # Check if system is paused due to backoff strategy
+        if self.is_paused():
+            pause_info = self.get_pause_status()
+            logger.info(f"System is paused until {pause_info.get('paused_until')} due to: {pause_info.get('reason')}")
+            logger.info(f"Time remaining: {pause_info.get('time_remaining')}")
+            self._log_activity(check_time, 'paused', 0, 0)
+            return
         
         try:
             # Get recent tweets from the user
@@ -194,7 +254,7 @@ class TwitterMonitor:
             self._log_activity(check_time, 'check', new_tweets_found, sms_sent_count)
                 
         except tweepy.TooManyRequests as e:
-            logger.warning("Twitter API rate limit exceeded. Exiting to avoid overlap with scheduled runs.")
+            logger.warning("Twitter API rate limit exceeded. Activating 48-hour backoff strategy.")
             
             # Try to get rate limit information from the exception
             try:
@@ -202,8 +262,10 @@ class TwitterMonitor:
                     self.log_rate_limit_status(e.response, 'get_users_tweets (rate limited)')
             except:
                 logger.warning("Could not extract rate limit headers from rate limit exception")
-                
-            self._log_activity(check_time, 'rate_limited', 0, 0)
+            
+            # Activate 48-hour backoff pause
+            self.set_48_hour_pause("Twitter API rate limit exceeded")
+            self._log_activity(check_time, 'rate_limited_paused', 0, 0)
             return
         except Exception as e:
             logger.error(f"Error checking for new tweets: {str(e)}")
@@ -231,6 +293,12 @@ class TwitterMonitor:
             # SAFETY: Refuse to send if already sent 10+ messages today (something is wrong)
             if daily_count >= 10:
                 logger.error(f"SAFETY STOP: Already sent {daily_count} SMS today. Refusing to send more.")
+                return False
+            
+            # BACKOFF: Check if sending this SMS would exceed 25 per day threshold
+            if daily_count >= 25:
+                logger.warning(f"SMS threshold reached: {daily_count} messages sent today. Activating 48-hour backoff.")
+                self.set_48_hour_pause(f"SMS threshold exceeded: {daily_count} messages sent in one day")
                 return False
             
             # Format the tweet content for SMS (spam-free format)
@@ -367,11 +435,16 @@ class TwitterMonitor:
     def get_status(self):
         """Get current status of the monitor"""
         today = datetime.now().strftime('%Y-%m-%d')
-        return {
+        pause_status = self.get_pause_status()
+        
+        status = {
             'last_tweet_id': self.data.get('last_tweet_id'),
             'total_tweets_sent': self.data.get('total_tweets_sent', 0),
             'monitoring_user': 'ShamsCharania',
             'user_id': self.shams_user_id,
             'sms_sent_today': self.data['daily_sms_count'].get(today, 0),
-            'last_volume_alert': self.data.get('last_volume_alert')
+            'last_volume_alert': self.data.get('last_volume_alert'),
+            'pause_status': pause_status
         }
+        
+        return status

@@ -38,10 +38,30 @@
       "action": "rate_limited",
       "tweets_found": 0,
       "sms_sent": 0
+    },
+    {
+      "timestamp": "2025-09-07T17:27:33.302051+00:00",
+      "action": "rate_limited_paused",
+      "tweets_found": 0,
+      "sms_sent": 0
+    },
+    {
+      "timestamp": "2025-09-07T17:27:41.050193+00:00",
+      "action": "paused",
+      "tweets_found": 0,
+      "sms_sent": 0
+    },
+    {
+      "timestamp": "2025-09-07T17:28:12.060761+00:00",
+      "action": "paused",
+      "tweets_found": 0,
+      "sms_sent": 0
     }
   ],
   "daily_sms_count": {
     "2025-09-07": 10
   },
-  "last_volume_alert": null
+  "last_volume_alert": null,
+  "paused_until": "2025-09-09T17:27:33.423300+00:00",
+  "pause_reason": "Twitter API rate limit exceeded"
 }
