@@ -34,6 +34,58 @@ class TwitterMonitor:
         
         logger.info(f"Twitter Monitor initialized for user ID: {self.shams_user_id}")
     
+    def log_rate_limit_status(self, response, endpoint_name):
+        """Log current rate limit status from Twitter API response headers"""
+        try:
+            # Debug: Show what type of response object we have
+            logger.info(f"DEBUG: Response type: {type(response)}")
+            
+            # Try different ways to get headers
+            headers = None
+            if hasattr(response, 'headers'):
+                headers = response.headers
+                logger.info(f"DEBUG: Found headers attribute: {type(headers)}")
+            elif hasattr(response, 'response') and hasattr(response.response, 'headers'):
+                headers = response.response.headers
+                logger.info(f"DEBUG: Found response.response.headers: {type(headers)}")
+            
+            # Debug: Show all headers if available
+            if headers:
+                logger.info(f"DEBUG: All available headers: {dict(headers)}")
+            else:
+                logger.info("DEBUG: No headers found")
+            
+            if headers:
+                # Try both uppercase and lowercase variants
+                remaining = (headers.get('x-rate-limit-remaining') or 
+                           headers.get('X-Rate-Limit-Remaining') or 'Unknown')
+                limit = (headers.get('x-rate-limit-limit') or 
+                        headers.get('X-Rate-Limit-Limit') or 'Unknown')
+                reset_timestamp = (headers.get('x-rate-limit-reset') or 
+                                 headers.get('X-Rate-Limit-Reset') or 'Unknown')
+            else:
+                remaining = limit = reset_timestamp = 'No Headers'
+            
+            if reset_timestamp != 'Unknown' and reset_timestamp != 'No Headers':
+                try:
+                    reset_time = datetime.fromtimestamp(int(reset_timestamp), tz=timezone.utc)
+                    reset_str = reset_time.strftime('%Y-%m-%d %H:%M:%S UTC')
+                    time_until_reset = reset_time - datetime.now(timezone.utc)
+                    minutes_until_reset = int(time_until_reset.total_seconds() / 60)
+                except:
+                    reset_str = reset_timestamp
+                    minutes_until_reset = 'Parse Error'
+            else:
+                reset_str = reset_timestamp
+                minutes_until_reset = 'N/A'
+            
+            logger.info(f"RATE LIMIT STATUS for {endpoint_name}:")
+            logger.info(f"  Remaining: {remaining}/{limit} requests")
+            logger.info(f"  Resets at: {reset_str} (in {minutes_until_reset} minutes)")
+            
+        except Exception as e:
+            logger.warning(f"Could not parse rate limit headers: {str(e)}")
+
     def get_user_id(self):
         """Get Shams Charania's Twitter user ID (cached to avoid rate limits)"""
         # Use cached user ID to avoid hitting rate limits
@@ -43,12 +95,16 @@ class TwitterMonitor:
             return cached_user_id
             
         try:
-            user = self.client.get_user(username='ShamsCharania')
-            if user and user.data:
+            response = self.client.get_user(username='ShamsCharania')
+            
+            # Log rate limit status
+            self.log_rate_limit_status(response, 'get_user')
+            
+            if response and response.data:
                 # Cache the user ID to avoid future API calls
-                self.data['shams_user_id'] = user.data.id
+                self.data['shams_user_id'] = response.data.id
                 self.save_data()
-                return user.data.id
+                return response.data.id
             else:
                 raise Exception("User not found")
         except Exception as e:
@@ -117,6 +173,9 @@ class TwitterMonitor:
                 exclude=['retweets', 'replies']
             )
             
+            # Log rate limit status after API call
+            self.log_rate_limit_status(tweets, 'get_users_tweets')
+            
             if not tweets or not tweets.data:
                 logger.debug("No new tweets found")
                 self._log_activity(check_time, 'check', 0, 0)
@@ -134,8 +193,16 @@ class TwitterMonitor:
             # Log this check activity
             self._log_activity(check_time, 'check', new_tweets_found, sms_sent_count)
                 
-        except tweepy.TooManyRequests:
+        except tweepy.TooManyRequests as e:
             logger.warning("Twitter API rate limit exceeded. Exiting to avoid overlap with scheduled runs.")
+            
+            # Try to get rate limit information from the exception
+            try:
+                if hasattr(e, 'response') and e.response:
+                    self.log_rate_limit_status(e.response, 'get_users_tweets (rate limited)')
+            except:
+                logger.warning("Could not extract rate limit headers from rate limit exception")
+                
             self._log_activity(check_time, 'rate_limited', 0, 0)
             return
         except Exception as e:
