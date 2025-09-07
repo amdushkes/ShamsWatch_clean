@@ -145,6 +145,10 @@ class TwitterMonitor:
         if not pause_until:
             return False
         
+        # Check for indefinite pause
+        if pause_until == 'indefinite':
+            return True
+        
         # Convert string back to datetime for comparison
         try:
             pause_end_time = datetime.fromisoformat(str(pause_until))
@@ -172,6 +176,16 @@ class TwitterMonitor:
         logger.warning(f"SYSTEM PAUSED for 48 hours until {pause_end_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         logger.warning(f"Pause reason: {reason}")
     
+    def set_indefinite_pause(self, reason):
+        """Set an indefinite pause with the given reason"""
+        self.data['paused_until'] = 'indefinite'
+        self.data['pause_reason'] = reason
+        self.save_data()
+        
+        logger.warning(f"SYSTEM PAUSED INDEFINITELY")
+        logger.warning(f"Pause reason: {reason}")
+        logger.warning(f"System will remain paused until manually resumed.")
+    
     def _clear_pause(self):
         """Clear the current pause"""
         if self.data.get('paused_until'):
@@ -188,6 +202,15 @@ class TwitterMonitor:
         
         pause_until = self.data.get('paused_until')
         reason = self.data.get('pause_reason')
+        
+        # Handle indefinite pause
+        if pause_until == 'indefinite':
+            return {
+                'paused': True,
+                'reason': reason,
+                'paused_until': 'indefinite',
+                'time_remaining': 'indefinite'
+            }
         
         try:
             pause_end_time = datetime.fromisoformat(pause_until)
