@@ -367,17 +367,23 @@ class TwitterMonitor:
             "",
             tweet.text,
             "",
-            f"View: {twitter_url}"
+            f"View: {twitter_url}",
+            "",
+            "Reply STOP to opt out"
         ]
         
         full_message = "\n".join(message_parts)
         
-        # Handle SMS character limit
+        # Handle SMS character limit (accounting for opt-out text)
+        opt_out_text = "\n\nReply STOP to opt out"
+        available_length = 1600 - len(opt_out_text)
+        
         if len(full_message) <= 1600:
             return full_message
         else:
             # If message is too long, truncate the tweet text
-            max_tweet_length = 1600 - len(full_message) + len(tweet.text) - 20  # Leave buffer
+            header_and_footer = f"Shams update {created_at}:\n\n\n\nView: {twitter_url}{opt_out_text}"
+            max_tweet_length = available_length - len(header_and_footer) - 20  # Leave buffer
             truncated_text = tweet.text[:max_tweet_length] + "..."
             
             message_parts[2] = truncated_text
