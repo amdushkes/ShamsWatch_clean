@@ -146,6 +146,12 @@ class TwitterMonitor:
     def process_new_tweet(self, tweet):
         """Process a new tweet and send SMS notification"""
         try:
+            # SAFETY: Only process tweets from last 24 hours to prevent backlog processing
+            tweet_age = datetime.now(timezone.utc) - tweet.created_at
+            if tweet_age.total_seconds() > 86400:  # 24 hours
+                logger.info(f"Skipping old tweet {tweet.id} (age: {tweet_age})")
+                return False
+                
             # Check if we already processed this tweet to prevent duplicates
             if str(tweet.id) == str(self.data.get('last_tweet_id')):
                 logger.debug(f"Tweet {tweet.id} already processed, skipping")
@@ -154,6 +160,11 @@ class TwitterMonitor:
             # Check daily SMS volume before sending
             today = datetime.now().strftime('%Y-%m-%d')
             daily_count = self.data['daily_sms_count'].get(today, 0)
+            
+            # SAFETY: Refuse to send if already sent 5+ messages today (something is wrong)
+            if daily_count >= 5:
+                logger.error(f"SAFETY STOP: Already sent {daily_count} SMS today. Refusing to send more.")
+                return False
             
             # Format the tweet content for SMS (spam-free format)
             sms_message = self.format_tweet_for_sms(tweet)
